@@ -1,0 +1,10 @@
+[package]
+name = "arbalest"
+version = "0.1.0"
+authors = ["Anthony Ramine <n.oxyde@gmail.com>", "The Rust Project Developers"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/nox/arbalest"
+documentation = "https://docs.rs/arbalest/0.1.0/"
+
+[lib]
+test = false
