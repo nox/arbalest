@@ -1,0 +1,19 @@
+language: rust
+matrix:
+  include:
+    - rust: 1.28.0
+      os: linux
+    - rust: stable
+      os: linux
+    - rust: stable
+      os: osx
+    - rust: stable
+      os: windows
+    - rust: beta
+      os: linux
+    - rust: nightly
+      os: linux
+branches:
+  only:
+    - staging # bors r+
+    - trying # bors try
