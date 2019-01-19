@@ -879,14 +879,14 @@ impl<'b, T: ?Sized> DerefMut for RefMut<'b, T> {
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for RefMut<'_, T> {
+impl<'b, T: ?Sized + fmt::Debug> fmt::Debug for RefMut<'b, T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.value.fmt(f)
     }
 }
 
-impl<T: ?Sized + fmt::Display> fmt::Display for RefMut<'_, T> {
+impl<'b, T: ?Sized + fmt::Display> fmt::Display for RefMut<'b, T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.value.fmt(f)
