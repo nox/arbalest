@@ -1,6 +1,6 @@
 extern crate arbalest;
 
-use arbalest::{Arbalest, Fragile};
+use arbalest::Arbalest;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Acquire, SeqCst};
 use std::sync::mpsc;
