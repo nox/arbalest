@@ -497,7 +497,7 @@ impl<T: ?Sized> Deref for Arbalest<T> {
         // on the same thread (in which case things are obviously in order),
         // or an access through a different thread, to which the data had to be
         // sent there in the first place, which required synchronisation on its
-        // on.
+        // own.
         unsafe { &*self.inner().data.get() }
     }
 }
