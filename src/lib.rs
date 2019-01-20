@@ -314,7 +314,7 @@ impl<T: ?Sized> Arbalest<T> {
         // value, and given we have a &mut of it, there is no way another thread
         // is holding a reference to it.
         //
-        // FIXME(nox): Is this Acquire too much? Atomic orderings hurt my brain.
+        // This Acquire load synchronises with the Release write in Arbalest::drop.
         if inner.strong.compare_and_swap(1, MUTABLE_REFCOUNT, Acquire) != 1 {
             return Err(BorrowMutError { _private: () });
         }
@@ -491,6 +491,13 @@ impl<T: ?Sized> Deref for Arbalest<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
+        // This does not require any synchronisation, given that the value
+        // can only be mutated when there is no other Arbalest pointing to it,
+        // so if we deref this one, it's either the same one or a clone
+        // on the same thread (in which case things are obviously in order),
+        // or an access through a different thread, to which the data had to be
+        // sent there in the first place, which required synchronisation on its
+        // on.
         unsafe { &*self.inner().data.get() }
     }
 }
@@ -950,6 +957,11 @@ impl<T: ?Sized> Fragile<T> {
     ///
     /// [`Arbalest`]: struct.Arbalest.html
     ///
+    /// # Panics
+    ///
+    /// Panics if the value is currently mutably borrowed by its single
+    /// `Arbalest` reference.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1024,11 +1036,9 @@ impl<T: ?Sized> Fragile<T> {
         // fetch_add because once the count hits 0 it must never be above 0.
         let inner = self.inner().ok_or(UpgradeError::Dropped)?;
 
-        // Relaxed load because any write of 0 that we can observe
-        // leaves the field in a permanently zero state (so a
-        // "stale" read of 0 is fine), and any other value is
-        // confirmed via the CAS below.
-        let mut n = inner.strong.load(Relaxed);
+        // This needs an Acquire load to synchronize with the Release write
+        // in RefMut::drop.
+        let mut n = inner.strong.load(Acquire);
 
         loop {
             if n == 0 {
