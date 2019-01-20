@@ -10,5 +10,5 @@ The weak references don't prevent mutable access to the inner value,
 
 ## How can I help?
 
-I have no clue whether my atomic orderings are correct, notably in
-`Arbalest::borrow_mut` and `Fragile::upgrade`.
+Improve documentation, review the code (most importantly the atomic operations),
+make use of it.
