@@ -77,14 +77,14 @@ fn drop_strong() {
 }
 
 #[test]
-fn drop_strong_fragile() {
+fn drop_strong_frail() {
     let mut canary = AtomicUsize::new(0);
     let arbalest = Strong::new(Canary(&mut canary));
-    let arbalest_fragile = Strong::downgrade(&arbalest);
+    let arbalest_frail = Strong::downgrade(&arbalest);
     assert!(canary.load(Acquire) == 0);
     drop(arbalest);
     assert!(canary.load(Acquire) == 1);
-    drop(arbalest_fragile);
+    drop(arbalest_frail);
 }
 
 #[test]
@@ -105,24 +105,24 @@ fn test_strong_count() {
 }
 
 #[test]
-fn test_fragile_count() {
+fn test_frail_count() {
     let a = Strong::new(0);
     assert!(Strong::strong_count(&a) == 1);
-    assert!(Strong::fragile_count(&a) == 0);
+    assert!(Strong::frail_count(&a) == 0);
     let w = Strong::downgrade(&a);
     assert!(Strong::strong_count(&a) == 1);
-    assert!(Strong::fragile_count(&a) == 1);
+    assert!(Strong::frail_count(&a) == 1);
     let x = w.clone();
-    assert!(Strong::fragile_count(&a) == 2);
+    assert!(Strong::frail_count(&a) == 2);
     drop(w);
     drop(x);
     assert!(Strong::strong_count(&a) == 1);
-    assert!(Strong::fragile_count(&a) == 0);
+    assert!(Strong::frail_count(&a) == 0);
     let c = a.clone();
     assert!(Strong::strong_count(&a) == 2);
-    assert!(Strong::fragile_count(&a) == 0);
+    assert!(Strong::frail_count(&a) == 0);
     let d = Strong::downgrade(&c);
-    assert!(Strong::fragile_count(&c) == 1);
+    assert!(Strong::frail_count(&c) == 1);
     assert!(Strong::strong_count(&c) == 2);
 
     drop(a);

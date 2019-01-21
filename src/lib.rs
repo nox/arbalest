@@ -39,7 +39,7 @@ use std::usize;
 /// The type `Strong<T>` provides shared ownership of a value of type `T`,
 /// allocated in the heap. It behaves mostly like `Arc<T>`, except that it
 /// provides a way to mutably borrow the `T` that doesn't take into account
-/// any fragile references to it. Instead, fragile references fail to upgrade
+/// any frail references to it. Instead, frail references fail to upgrade
 /// when the `Strong<T>` is mutably borrowed.
 ///
 /// ## Thread Safety
@@ -47,24 +47,24 @@ use std::usize;
 /// `Strong<T>` will implement `Send` and `Sync` as long as the `T` implements
 /// `Send` and `Sync`, just like `Arc<T>`.
 ///
-/// ## Breaking cycles with `Fragile`
+/// ## Breaking cycles with `Frail`
 ///
 /// The [`downgrade`][downgrade] method can be used to create a non-owning
-/// [`Fragile`][fragile] pointer. A [`Fragile`][fragile] pointer can be
+/// [`Frail`][frail] pointer. A [`Frail`][frail] pointer can be
 /// [`upgrade`][upgrade]d to an `Strong`, but this will return `None` if the
 /// value has already been dropped, or panic if the `T` is mutably borrowed
 /// by another `Strong`.
 ///
 /// A cycle between `Strong` pointers will never be deallocated. For this
-/// reason, [`Fragile`][fragile] is used to break cycles. For example, a tree
+/// reason, [`Frail`][frail] is used to break cycles. For example, a tree
 /// could have strong `Strong` pointers from parent nodes to children, and
-/// [`Fragile`][fragile] pointers from children back to their parents.
+/// [`Frail`][frail] pointers from children back to their parents.
 ///
 /// # Cloning references
 ///
 /// Creating a new reference from an existing reference-counted pointer is done
 /// using the `Clone` trait implemented for `Strong<T>` and
-/// [`Fragile<T>`][fragile].
+/// [`Frail<T>`][frail].
 ///
 /// ```
 /// use arbalest::Strong;
@@ -94,12 +94,12 @@ use std::usize;
 /// Strong::downgrade(&my_Arbalest);
 /// ```
 ///
-/// [`Fragile<T>`][fragile] does not auto-dereference to `T`, because the value
+/// [`Frail<T>`][frail] does not auto-dereference to `T`, because the value
 /// may currently be mutably borrowed or have already been destroyed.
 ///
-/// [fragile]: struct.Fragile.html
+/// [frail]: struct.Frail.html
 /// [downgrade]: #method.downgrade
-/// [upgrade]: struct.Fragile.html#method.upgrade
+/// [upgrade]: struct.Frail.html#method.upgrade
 /// [`Strong::clone(&from)`]: #method.clone
 pub struct Strong<T: ?Sized> {
     phantom: PhantomData<T>,
@@ -119,7 +119,7 @@ pub struct BorrowMutError {
     _private: (),
 }
 
-/// An error returned by [`Fragile::try_upgrade`](struct.Fragile.html#method.try_upgrade).
+/// An error returned by [`Frail::try_upgrade`](struct.Frail.html#method.try_upgrade).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum UpgradeError {
     /// The value has been dropped.
@@ -128,46 +128,46 @@ pub enum UpgradeError {
     MutablyBorrowed,
 }
 
-/// `Fragile` is a version of [`Strong`] that holds a non-owning reference
+/// `Frail` is a version of [`Strong`] that holds a non-owning reference
 /// to the managed value.
 ///
-/// The value is accessed by calling [`upgrade`] on the `Fragile`
+/// The value is accessed by calling [`upgrade`] on the `Frail`
 /// pointer, which returns an `Option<`[`Strong`]`<T>>`.
 ///
-/// Since a `Fragile` reference does not count towards ownership, it will not
-/// prevent the inner value from being dropped, and `Fragile` itself makes no
+/// Since a `Frail` reference does not count towards ownership, it will not
+/// prevent the inner value from being dropped, and `Frail` itself makes no
 /// guarantees about the value still being present and may return `None`
 /// when [`upgrade`]d.
 ///
-/// A `Fragile` pointer is useful for keeping a temporary reference to the value
+/// A `Frail` pointer is useful for keeping a temporary reference to the value
 /// within [`Strong`] without extending its lifetime. It is also used to
 /// prevent circular references between [`Strong`] pointers, since mutual
 /// owning references would never allow either [`Strong`] to be dropped.
 /// For example, a tree could have strong [`Strong`] pointers from parent
-/// nodes to children, and `Fragile` pointers from children back to their
+/// nodes to children, and `Frail` pointers from children back to their
 /// parents.
 ///
-/// The typical way to obtain a `Fragile` pointer is to call
+/// The typical way to obtain a `Frail` pointer is to call
 /// [`Strong::downgrade`].
 ///
 /// [`Strong`]: struct.Strong.html
 /// [`Strong::downgrade`]: struct.Strong.html#method.downgrade
 /// [`upgrade`]: #method.upgrade
-pub struct Fragile<T: ?Sized> {
+pub struct Frail<T: ?Sized> {
     // This is a `NonNull` to allow optimizing the size of this type in enums,
     // but it is not necessarily a valid pointer.
-    // `Fragile::new` sets this to `usize::MAX` so that it doesn’t need
+    // `Frail::new` sets this to `usize::MAX` so that it doesn’t need
     // to allocate space on the heap.  That's not a value a real pointer
     // will ever have because RcBox has alignment at least 2.
     ptr: NonNull<ArbalestInner<T>>,
 }
 
-unsafe impl<T: ?Sized + Sync + Send> Send for Fragile<T> {}
-unsafe impl<T: ?Sized + Sync + Send> Sync for Fragile<T> {}
+unsafe impl<T: ?Sized + Sync + Send> Send for Frail<T> {}
+unsafe impl<T: ?Sized + Sync + Send> Sync for Frail<T> {}
 
 struct ArbalestInner<T: ?Sized> {
     strong: AtomicUsize,
-    fragile: AtomicUsize,
+    frail: AtomicUsize,
     data: UnsafeCell<T>,
 }
 
@@ -186,11 +186,11 @@ impl<T> Strong<T> {
     /// ```
     #[inline]
     pub fn new(data: T) -> Self {
-        // Start the fragile pointer count as 1 which is the fragile pointer
+        // Start the frail pointer count as 1 which is the frail pointer
         // that is held by all the strong pointers (kinda).
         let inner = Box::new(ArbalestInner {
             strong: AtomicUsize::new(1),
-            fragile: AtomicUsize::new(1),
+            frail: AtomicUsize::new(1),
             data: UnsafeCell::new(data),
         });
         Self {
@@ -204,7 +204,7 @@ impl<T> Strong<T> {
     ///
     /// Otherwise, an error is returned with the same value that was passed in.
     ///
-    /// This will succeed even if there are outstanding fragile references.
+    /// This will succeed even if there are outstanding frail references.
     ///
     /// # Examples
     ///
@@ -229,8 +229,8 @@ impl<T> Strong<T> {
         unsafe {
             let elem = ptr::read(&this.ptr.as_ref().data);
 
-            // Make a fragile pointer to clean up the implicit strong-fragile reference.
-            let _fragile = Fragile { ptr: this.ptr };
+            // Make a frail pointer to clean up the implicit strong-frail reference.
+            let _frail = Frail { ptr: this.ptr };
             mem::forget(this);
 
             Ok(elem.into_inner())
@@ -241,7 +241,7 @@ impl<T> Strong<T> {
 impl<T: ?Sized> Strong<T> {
     /// Mutably borrows the wrapped value.
     ///
-    /// The borrow lasts until the returned `RefMut` exits scope. Fragile
+    /// The borrow lasts until the returned `RefMut` exits scope. Frail
     /// references to that `Strong` cannot be upgraded while this borrow
     /// is active.
     ///
@@ -287,7 +287,7 @@ impl<T: ?Sized> Strong<T> {
     /// Mutably borrows the wrapped value, returning an error if the value
     /// is currently borrowed.
     ///
-    /// The borrow lasts until the returned `RefMut` exits scope. Fragile
+    /// The borrow lasts until the returned `RefMut` exits scope. Frail
     /// references to that `Strong` cannot be upgraded while this borrow
     /// is active.
     ///
@@ -381,9 +381,9 @@ impl<T: ?Sized> Strong<T> {
         }
     }
 
-    /// Creates a new [`Fragile`][fragile] pointer to this value.
+    /// Creates a new [`Frail`][frail] pointer to this value.
     ///
-    /// [fragile]: struct.Fragile.html
+    /// [frail]: struct.Frail.html
     ///
     /// # Examples
     ///
@@ -392,21 +392,21 @@ impl<T: ?Sized> Strong<T> {
     ///
     /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Strong::downgrade(&five);
+    /// let frail_five = Strong::downgrade(&five);
     /// ```
     #[inline]
-    pub fn downgrade(this: &Self) -> Fragile<T> {
+    pub fn downgrade(this: &Self) -> Frail<T> {
         this.inner().downgrade()
     }
 
-    /// Gets the number of [`Fragile`][fragile] pointers to this value.
+    /// Gets the number of [`Frail`][frail] pointers to this value.
     ///
-    /// [fragile]: struct.Fragile.html
+    /// [frail]: struct.Frail.html
     ///
     /// # Safety
     ///
     /// This method by itself is safe, but using it correctly requires extra
-    /// care. Another thread can change the fragile count at any time, including
+    /// care. Another thread can change the frail count at any time, including
     /// potentially between calling this method and acting on
     /// the result.
     ///
@@ -416,15 +416,15 @@ impl<T: ?Sized> Strong<T> {
     /// use arbalest::Strong;
     ///
     /// let five = Strong::new(5);
-    /// let fragile_five = Strong::downgrade(&five);
+    /// let frail_five = Strong::downgrade(&five);
     ///
     /// // This assertion is deterministic because we haven't shared
-    /// // the `Strong` or `Fragile` between threads.
-    /// assert_eq!(1, Strong::fragile_count(&five));
+    /// // the `Strong` or `Frail` between threads.
+    /// assert_eq!(1, Strong::frail_count(&five));
     /// ```
     #[inline]
-    pub fn fragile_count(this: &Self) -> usize {
-        this.inner().fragile.load(SeqCst) - 1
+    pub fn frail_count(this: &Self) -> usize {
+        this.inner().frail.load(SeqCst) - 1
     }
 
     /// Gets the number of strong (`Strong`) pointers to this value.
@@ -762,7 +762,7 @@ impl<T: ?Sized> Drop for Strong<T> {
     ///
     /// This will decrement the strong reference count. If the strong reference
     /// count reaches zero then the only other references (if any) are
-    /// [`Fragile`], so we `drop` the inner value.
+    /// [`Frail`], so we `drop` the inner value.
     ///
     /// # Examples
     ///
@@ -784,17 +784,17 @@ impl<T: ?Sized> Drop for Strong<T> {
     /// drop(foo2);   // Prints "dropped!"
     /// ```
     ///
-    /// [`Fragile`]: struct.Fragile.html
+    /// [`Frail`]: struct.Frail.html
     #[inline]
     fn drop(&mut self) {
         // FIXME(nox): If a RefMut was forgotten, this is the only strong
         // reference to the value but the strong reference counter is
         // MUTABLE_REFCOUNT, so the heap allocation will be leaked, and
-        // the program may abort in Fragile::upgrade.
+        // the program may abort in Frail::upgrade.
 
         // Because `fetch_sub` is already atomic, we do not need to synchronize
         // with other threads unless we are going to delete the object. This
-        // same logic applies to the below `fetch_sub` to the `fragile` count.
+        // same logic applies to the below `fetch_sub` to the `frail` count.
         if self.inner().strong.fetch_sub(1, Release) != 1 {
             return;
         }
@@ -832,10 +832,10 @@ impl<T: ?Sized> Drop for Strong<T> {
         #[inline(never)]
         unsafe fn drop_slow<T: ?Sized>(this: &mut Strong<T>) {
             // Destroy the data at this time, even though we may not free the box
-            // allocation itself (there may still be fragile pointers lying around).
+            // allocation itself (there may still be frail pointers lying around).
             ptr::drop_in_place(&mut this.ptr.as_mut().data);
 
-            if this.inner().fragile.fetch_sub(1, Release) == 1 {
+            if this.inner().frail.fetch_sub(1, Release) == 1 {
                 atomic::fence(Acquire);
                 alloc::dealloc(
                     this.ptr.cast().as_ptr(),
@@ -851,9 +851,9 @@ impl<T: ?Sized> Drop for Strong<T> {
 }
 
 impl<'b, T: ?Sized> RefMut<'b, T> {
-    /// Creates a new [`Fragile`][fragile] pointer to this value.
+    /// Creates a new [`Frail`][frail] pointer to this value.
     ///
-    /// [fragile]: struct.Fragile.html
+    /// [frail]: struct.Frail.html
     ///
     /// # Examples
     ///
@@ -862,10 +862,10 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
     ///
     /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Strong::downgrade(&five);
+    /// let frail_five = Strong::downgrade(&five);
     /// ```
     #[inline]
-    pub fn downgrade(this: &Self) -> Fragile<T> {
+    pub fn downgrade(this: &Self) -> Frail<T> {
         this.inner().downgrade()
     }
 }
@@ -926,8 +926,8 @@ impl Error for BorrowMutError {
     }
 }
 
-impl<T> Fragile<T> {
-    /// Constructs a new `Fragile<T>`, without allocating any memory.
+impl<T> Frail<T> {
+    /// Constructs a new `Frail<T>`, without allocating any memory.
     ///
     /// Calling [`upgrade`] on the return value always gives `None`.
     ///
@@ -936,9 +936,9 @@ impl<T> Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Fragile;
+    /// use arbalest::Frail;
     ///
-    /// let empty: Fragile<i64> = Fragile::new();
+    /// let empty: Frail<i64> = Frail::new();
     /// assert!(empty.upgrade().is_none());
     /// ```
     #[inline]
@@ -949,8 +949,8 @@ impl<T> Fragile<T> {
     }
 }
 
-impl<T: ?Sized> Fragile<T> {
-    /// Attempts to upgrade the `Fragile` pointer to an [`Strong`], extending
+impl<T: ?Sized> Frail<T> {
+    /// Attempts to upgrade the `Frail` pointer to an [`Strong`], extending
     /// the lifetime of the value if successful.
     ///
     /// Returns `None` if the value has since been dropped.
@@ -969,29 +969,29 @@ impl<T: ?Sized> Fragile<T> {
     ///
     /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Strong::downgrade(&five);
+    /// let frail_five = Strong::downgrade(&five);
     ///
-    /// let strong_five: Option<Strong<_>> = fragile_five.upgrade();
+    /// let strong_five: Option<Strong<_>> = frail_five.upgrade();
     /// assert!(strong_five.is_some());
     ///
     /// // Destroy all strong pointers.
     /// drop(strong_five);
     /// drop(five);
     ///
-    /// assert!(fragile_five.upgrade().is_none());
+    /// assert!(frail_five.upgrade().is_none());
     /// ```
     ///
     /// An example of panic:
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile};
+    /// use arbalest::{Strong, Frail};
     /// use std::thread;
     ///
     /// let mut five = Strong::new(5);
-    /// let fragile_five = Strong::downgrade(&five);
+    /// let frail_five = Strong::downgrade(&five);
     /// let b = Strong::borrow_mut(&mut five);
     /// let result = thread::spawn(move || {
-    ///    let maybe_same_five = fragile_five.upgrade(); // this causes a panic
+    ///    let maybe_same_five = frail_five.upgrade(); // this causes a panic
     /// }).join();
     ///
     /// assert!(result.is_err());
@@ -1004,7 +1004,7 @@ impl<T: ?Sized> Fragile<T> {
         }
     }
 
-    /// Attempts to upgrade the `Fragile` pointer to an [`Strong`], extending
+    /// Attempts to upgrade the `Frail` pointer to an [`Strong`], extending
     /// the lifetime of the value if successful.
     ///
     /// This is the non-panicking variant of [`upgrade`](#method.upgrade).
@@ -1015,20 +1015,20 @@ impl<T: ?Sized> Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile, UpgradeError};
+    /// use arbalest::{Strong, Frail, UpgradeError};
     /// use std::mem;
     ///
     /// let mut five = Strong::new(5);
-    /// let fragile_five = Strong::downgrade(&five);
-    /// assert!(fragile_five.try_upgrade().is_ok());
+    /// let frail_five = Strong::downgrade(&five);
+    /// assert!(frail_five.try_upgrade().is_ok());
     ///
     /// {
     ///     let b = Strong::borrow_mut(&mut five);
-    ///     assert_eq!(fragile_five.try_upgrade(), Err(UpgradeError::MutablyBorrowed));
+    ///     assert_eq!(frail_five.try_upgrade(), Err(UpgradeError::MutablyBorrowed));
     /// }
     ///
     /// drop(five);
-    /// assert_eq!(fragile_five.try_upgrade(), Err(UpgradeError::Dropped));
+    /// assert_eq!(frail_five.try_upgrade(), Err(UpgradeError::Dropped));
     /// ```
     /// [`Strong`]: struct.Strong.html
     pub fn try_upgrade(&self) -> Result<Strong<T>, UpgradeError> {
@@ -1052,7 +1052,7 @@ impl<T: ?Sized> Fragile<T> {
             // See comments in `Arc::clone` for why we do this (for `mem::forget`).
             // FIXME(nox): This may also happen if a Strong is mutably borrowed,
             // the RefMut is forgotten, then the Strong is cloned and a
-            // a fragile reference is upgraded.
+            // a frail reference is upgraded.
             if n > MAX_REFCOUNT {
                 process::abort();
             }
@@ -1073,43 +1073,43 @@ impl<T: ?Sized> Fragile<T> {
         }
     }
 
-    /// Returns true if the two `Fragile`s point to the same value (not just
+    /// Returns true if the two `Frail`s point to the same value (not just
     /// values that compare as equal).
     ///
     /// # Notes
     ///
-    /// Since this compares pointers it means that `Fragile::new()` will equal
+    /// Since this compares pointers it means that `Frail::new()` will equal
     /// each other, even though they don't point to any value.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile};
+    /// use arbalest::{Strong, Frail};
     ///
     /// let first_rc = Strong::new(5);
     /// let first = Strong::downgrade(&first_rc);
     /// let second = Strong::downgrade(&first_rc);
     ///
-    /// assert!(Fragile::ptr_eq(&first, &second));
+    /// assert!(Frail::ptr_eq(&first, &second));
     ///
     /// let third_rc = Strong::new(5);
     /// let third = Strong::downgrade(&third_rc);
     ///
-    /// assert!(!Fragile::ptr_eq(&first, &third));
+    /// assert!(!Frail::ptr_eq(&first, &third));
     /// ```
     ///
-    /// Comparing `Fragile::new`.
+    /// Comparing `Frail::new`.
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile};
+    /// use arbalest::{Strong, Frail};
     ///
-    /// let first = Fragile::new();
-    /// let second = Fragile::new();
-    /// assert!(Fragile::ptr_eq(&first, &second));
+    /// let first = Frail::new();
+    /// let second = Frail::new();
+    /// assert!(Frail::ptr_eq(&first, &second));
     ///
     /// let third_rc = Strong::new(());
     /// let third = Strong::downgrade(&third_rc);
-    /// assert!(!Fragile::ptr_eq(&first, &third));
+    /// assert!(!Frail::ptr_eq(&first, &third));
     /// ```
     #[inline]
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
@@ -1117,17 +1117,17 @@ impl<T: ?Sized> Fragile<T> {
     }
 }
 
-impl<T: ?Sized> Clone for Fragile<T> {
-    /// Makes a clone of the `Fragile` pointer that points to the same value.
+impl<T: ?Sized> Clone for Frail<T> {
+    /// Makes a clone of the `Frail` pointer that points to the same value.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile};
+    /// use arbalest::{Strong, Frail};
     ///
-    /// let fragile_five = Strong::downgrade(&Strong::new(5));
+    /// let frail_five = Strong::downgrade(&Strong::new(5));
     ///
-    /// let _ = Fragile::clone(&fragile_five);
+    /// let _ = Frail::clone(&frail_five);
     /// ```
     #[inline]
     fn clone(&self) -> Self {
@@ -1136,8 +1136,8 @@ impl<T: ?Sized> Clone for Fragile<T> {
     }
 }
 
-impl<T> Default for Fragile<T> {
-    /// Constructs a new `Fragile<T>`, without allocating memory.
+impl<T> Default for Frail<T> {
+    /// Constructs a new `Frail<T>`, without allocating memory.
     ///
     /// Calling [`upgrade`] on the return value always gives `None`.
     ///
@@ -1146,9 +1146,9 @@ impl<T> Default for Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Fragile;
+    /// use arbalest::Frail;
     ///
-    /// let empty: Fragile<i64> = Default::default();
+    /// let empty: Frail<i64> = Default::default();
     /// assert!(empty.upgrade().is_none());
     /// ```
     fn default() -> Self {
@@ -1156,19 +1156,19 @@ impl<T> Default for Fragile<T> {
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for Fragile<T> {
+impl<T: ?Sized + fmt::Debug> fmt::Debug for Frail<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(Fragile)")
+        write!(f, "(Frail)")
     }
 }
 
-impl<T: ?Sized> Drop for Fragile<T> {
-    /// Drops the `Fragile` pointer.
+impl<T: ?Sized> Drop for Frail<T> {
+    /// Drops the `Frail` pointer.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Strong, Fragile};
+    /// use arbalest::{Strong, Frail};
     ///
     /// struct Foo;
     ///
@@ -1179,16 +1179,16 @@ impl<T: ?Sized> Drop for Fragile<T> {
     /// }
     ///
     /// let foo = Strong::new(Foo);
-    /// let fragile_foo = Strong::downgrade(&foo);
-    /// let other_fragile_foo = Fragile::clone(&fragile_foo);
+    /// let frail_foo = Strong::downgrade(&foo);
+    /// let other_frail_foo = Frail::clone(&frail_foo);
     ///
-    /// drop(fragile_foo);   // Doesn't print anything
+    /// drop(frail_foo);   // Doesn't print anything
     /// drop(foo);        // Prints "dropped!"
     ///
-    /// assert!(other_fragile_foo.upgrade().is_none());
+    /// assert!(other_frail_foo.upgrade().is_none());
     /// ```
     fn drop(&mut self) {
-        // If we find out that we were the last fragile pointer, then its time
+        // If we find out that we were the last frail pointer, then its time
         // to deallocate the data entirely. See the discussion in Strong::drop()
         // about the memory orderings.
         let inner = if let Some(inner) = self.inner() {
@@ -1197,7 +1197,7 @@ impl<T: ?Sized> Drop for Fragile<T> {
             return;
         };
 
-        if inner.fragile.fetch_sub(1, Release) != 1 {
+        if inner.frail.fetch_sub(1, Release) != 1 {
             return;
         }
 
@@ -1248,9 +1248,9 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
     }
 }
 
-impl<T: ?Sized> Fragile<T> {
+impl<T: ?Sized> Frail<T> {
     /// Return `None` when the pointer is dangling and there is no allocated
-    /// `ArbalestInner`, i.e., this `Fragile` was created by `Fragile::new`.
+    /// `ArbalestInner`, i.e., this `Frail` was created by `Frail::new`.
     fn inner(&self) -> Option<&ArbalestInner<T>> {
         if is_dangling(self.ptr) {
             None
@@ -1270,7 +1270,7 @@ unsafe fn set_data_ptr<T: ?Sized, U>(mut ptr: *mut T, data: *mut U) -> *mut T {
 }
 
 impl<T: ?Sized> ArbalestInner<T> {
-    fn downgrade(&self) -> Fragile<T> {
+    fn downgrade(&self) -> Frail<T> {
         // Using a relaxed ordering is alright here, as knowledge of the
         // original reference prevents other threads from erroneously deleting
         // the object.
@@ -1282,7 +1282,7 @@ impl<T: ?Sized> ArbalestInner<T> {
         // another must already provide any required synchronization.
         //
         // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
-        let old_fragile_refcount = self.fragile.fetch_add(1, Relaxed);
+        let old_frail_refcount = self.frail.fetch_add(1, Relaxed);
 
         // However we need to guard against massive refcounts in case someone
         // is `mem::forget`ing Arbalests. If we don't do this the count can
@@ -1293,11 +1293,11 @@ impl<T: ?Sized> ArbalestInner<T> {
         //
         // We abort because such a program is incredibly degenerate, and we
         // don't care to support it.
-        if old_fragile_refcount > MAX_REFCOUNT {
+        if old_frail_refcount > MAX_REFCOUNT {
             process::abort();
         }
 
-        Fragile { ptr: self.into() }
+        Frail { ptr: self.into() }
     }
 
     unsafe fn from_raw(ptr: *const T) -> *mut Self {
