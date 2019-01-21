@@ -1,20 +1,20 @@
 extern crate arbalest;
 
-use arbalest::Arbalest;
+use arbalest::Strong;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Acquire, SeqCst};
 use std::sync::mpsc;
 use std::thread;
 
 #[test]
-fn manually_share_arbalest() {
+fn manually_share_strong() {
     let v = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let arbalest_v = Arbalest::new(v);
+    let arbalest_v = Strong::new(v);
 
     let (tx, rx) = mpsc::channel();
 
     let _t = thread::spawn(move || {
-        let arbalest_v: Arbalest<Vec<i32>> = rx.recv().unwrap();
+        let arbalest_v: Strong<Vec<i32>> = rx.recv().unwrap();
         assert_eq!((*arbalest_v)[3], 4);
     });
 
@@ -26,61 +26,61 @@ fn manually_share_arbalest() {
 
 #[test]
 fn try_unwrap() {
-    let x = Arbalest::new(3);
-    assert_eq!(Arbalest::try_unwrap(x), Ok(3));
-    let x = Arbalest::new(4);
+    let x = Strong::new(3);
+    assert_eq!(Strong::try_unwrap(x), Ok(3));
+    let x = Strong::new(4);
     let _y = x.clone();
-    assert_eq!(Arbalest::try_unwrap(x), Err(Arbalest::new(4)));
-    let x = Arbalest::new(5);
-    let _w = Arbalest::downgrade(&x);
-    assert_eq!(Arbalest::try_unwrap(x), Ok(5));
+    assert_eq!(Strong::try_unwrap(x), Err(Strong::new(4)));
+    let x = Strong::new(5);
+    let _w = Strong::downgrade(&x);
+    assert_eq!(Strong::try_unwrap(x), Ok(5));
 }
 
 #[test]
 fn into_from_raw() {
-    let x = Arbalest::new(Box::new("hello"));
+    let x = Strong::new(Box::new("hello"));
     let y = x.clone();
 
-    let x_ptr = Arbalest::into_raw(x);
+    let x_ptr = Strong::into_raw(x);
     drop(y);
     unsafe {
         assert_eq!(**x_ptr, "hello");
 
-        let x = Arbalest::from_raw(x_ptr);
+        let x = Strong::from_raw(x_ptr);
         assert_eq!(**x, "hello");
 
-        assert_eq!(Arbalest::try_unwrap(x).map(|x| *x), Ok("hello"));
+        assert_eq!(Strong::try_unwrap(x).map(|x| *x), Ok("hello"));
     }
 }
 
 #[test]
 fn test_live() {
-    let x = Arbalest::new(5);
-    let y = Arbalest::downgrade(&x);
+    let x = Strong::new(5);
+    let y = Strong::downgrade(&x);
     assert!(y.upgrade().is_some());
 }
 
 #[test]
 fn test_dead() {
-    let x = Arbalest::new(5);
-    let y = Arbalest::downgrade(&x);
+    let x = Strong::new(5);
+    let y = Strong::downgrade(&x);
     drop(x);
     assert!(y.upgrade().is_none());
 }
 
 #[test]
-fn drop_arbalest() {
+fn drop_strong() {
     let mut canary = AtomicUsize::new(0);
-    let x = Arbalest::new(Canary(&mut canary));
+    let x = Strong::new(Canary(&mut canary));
     drop(x);
     assert!(canary.load(Acquire) == 1);
 }
 
 #[test]
-fn drop_arbalest_fragile() {
+fn drop_strong_fragile() {
     let mut canary = AtomicUsize::new(0);
-    let arbalest = Arbalest::new(Canary(&mut canary));
-    let arbalest_fragile = Arbalest::downgrade(&arbalest);
+    let arbalest = Strong::new(Canary(&mut canary));
+    let arbalest_fragile = Strong::downgrade(&arbalest);
     assert!(canary.load(Acquire) == 0);
     drop(arbalest);
     assert!(canary.load(Acquire) == 1);
@@ -89,41 +89,41 @@ fn drop_arbalest_fragile() {
 
 #[test]
 fn test_strong_count() {
-    let a = Arbalest::new(0);
-    assert!(Arbalest::strong_count(&a) == 1);
-    let w = Arbalest::downgrade(&a);
-    assert!(Arbalest::strong_count(&a) == 1);
+    let a = Strong::new(0);
+    assert!(Strong::strong_count(&a) == 1);
+    let w = Strong::downgrade(&a);
+    assert!(Strong::strong_count(&a) == 1);
     let b = w.upgrade().expect("");
-    assert!(Arbalest::strong_count(&b) == 2);
-    assert!(Arbalest::strong_count(&a) == 2);
+    assert!(Strong::strong_count(&b) == 2);
+    assert!(Strong::strong_count(&a) == 2);
     drop(w);
     drop(a);
-    assert!(Arbalest::strong_count(&b) == 1);
+    assert!(Strong::strong_count(&b) == 1);
     let c = b.clone();
-    assert!(Arbalest::strong_count(&b) == 2);
-    assert!(Arbalest::strong_count(&c) == 2);
+    assert!(Strong::strong_count(&b) == 2);
+    assert!(Strong::strong_count(&c) == 2);
 }
 
 #[test]
 fn test_fragile_count() {
-    let a = Arbalest::new(0);
-    assert!(Arbalest::strong_count(&a) == 1);
-    assert!(Arbalest::fragile_count(&a) == 0);
-    let w = Arbalest::downgrade(&a);
-    assert!(Arbalest::strong_count(&a) == 1);
-    assert!(Arbalest::fragile_count(&a) == 1);
+    let a = Strong::new(0);
+    assert!(Strong::strong_count(&a) == 1);
+    assert!(Strong::fragile_count(&a) == 0);
+    let w = Strong::downgrade(&a);
+    assert!(Strong::strong_count(&a) == 1);
+    assert!(Strong::fragile_count(&a) == 1);
     let x = w.clone();
-    assert!(Arbalest::fragile_count(&a) == 2);
+    assert!(Strong::fragile_count(&a) == 2);
     drop(w);
     drop(x);
-    assert!(Arbalest::strong_count(&a) == 1);
-    assert!(Arbalest::fragile_count(&a) == 0);
+    assert!(Strong::strong_count(&a) == 1);
+    assert!(Strong::fragile_count(&a) == 0);
     let c = a.clone();
-    assert!(Arbalest::strong_count(&a) == 2);
-    assert!(Arbalest::fragile_count(&a) == 0);
-    let d = Arbalest::downgrade(&c);
-    assert!(Arbalest::fragile_count(&c) == 1);
-    assert!(Arbalest::strong_count(&c) == 2);
+    assert!(Strong::strong_count(&a) == 2);
+    assert!(Strong::fragile_count(&a) == 0);
+    let d = Strong::downgrade(&c);
+    assert!(Strong::fragile_count(&c) == 1);
+    assert!(Strong::strong_count(&c) == 2);
 
     drop(a);
     drop(c);
@@ -131,22 +131,22 @@ fn test_fragile_count() {
 }
 
 #[test]
-fn show_arbalest() {
-    let a = Arbalest::new(5);
+fn show_strong() {
+    let a = Strong::new(5);
     assert_eq!(format!("{:?}", a), "5");
 }
 
 #[test]
 fn test_from_owned() {
     let foo = 123;
-    let foo_arbalest = Arbalest::from(foo);
-    assert!(123 == *foo_arbalest);
+    let foo_strong = Strong::from(foo);
+    assert!(123 == *foo_strong);
 }
 
-// Make sure deriving works with Arbalest<T>.
+// Make sure deriving works with Strong<T>.
 #[derive(Eq, Ord, PartialEq, PartialOrd, Clone, Debug, Default)]
 struct _Foo {
-    _inner: Arbalest<i32>,
+    _inner: Strong<i32>,
 }
 
 struct Canary(*mut AtomicUsize);

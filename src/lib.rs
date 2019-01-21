@@ -9,9 +9,12 @@
 
 //! Thread-safe reference-counting pointers.
 //!
-//! See the [`Arbalest<T>`][arbalest] documentation for more details.
+//! See the [`Strong<T>`][strong] documentation for more details.
 //!
-//! [arbalest]: struct.Arbalest.html
+//! “Arbalest” is just a cute name, an `Arc<T>` with a twist, and “arc” is
+//! French for “bow”.
+//!
+//! [strong]: struct.Strong.html
 
 use std::alloc::{self, Layout};
 use std::borrow::Borrow;
@@ -33,65 +36,62 @@ use std::usize;
 
 /// A thread-safe reference-counting pointer.
 ///
-/// “Arbalest” stands for nothing, it's just `Arc<T>` with a twist, and “arc” is
-/// French for “bow”.
-///
-/// The type `Arbalest<T>` provides shared ownership of a value of type `T`,
+/// The type `Strong<T>` provides shared ownership of a value of type `T`,
 /// allocated in the heap. It behaves mostly like `Arc<T>`, except that it
 /// provides a way to mutably borrow the `T` that doesn't take into account
 /// any fragile references to it. Instead, fragile references fail to upgrade
-/// when the `Arbalest<T>` is mutably borrowed.
+/// when the `Strong<T>` is mutably borrowed.
 ///
 /// ## Thread Safety
 ///
-/// `Arbalest<T>` will implement `Send` and `Sync` as long as the `T` implements
+/// `Strong<T>` will implement `Send` and `Sync` as long as the `T` implements
 /// `Send` and `Sync`, just like `Arc<T>`.
 ///
 /// ## Breaking cycles with `Fragile`
 ///
 /// The [`downgrade`][downgrade] method can be used to create a non-owning
 /// [`Fragile`][fragile] pointer. A [`Fragile`][fragile] pointer can be
-/// [`upgrade`][upgrade]d to an `Arbalest`, but this will return `None` if the
+/// [`upgrade`][upgrade]d to an `Strong`, but this will return `None` if the
 /// value has already been dropped, or panic if the `T` is mutably borrowed
-/// by another `Arbalest`.
+/// by another `Strong`.
 ///
-/// A cycle between `Arbalest` pointers will never be deallocated. For this
+/// A cycle between `Strong` pointers will never be deallocated. For this
 /// reason, [`Fragile`][fragile] is used to break cycles. For example, a tree
-/// could have strong `Arbalest` pointers from parent nodes to children, and
+/// could have strong `Strong` pointers from parent nodes to children, and
 /// [`Fragile`][fragile] pointers from children back to their parents.
 ///
 /// # Cloning references
 ///
 /// Creating a new reference from an existing reference-counted pointer is done
-/// using the `Clone` trait implemented for `Arbalest<T>` and
+/// using the `Clone` trait implemented for `Strong<T>` and
 /// [`Fragile<T>`][fragile].
 ///
 /// ```
-/// use arbalest::Arbalest;
-/// let foo = Arbalest::new(vec![1.0, 2.0, 3.0]);
+/// use arbalest::Strong;
+/// let foo = Strong::new(vec![1.0, 2.0, 3.0]);
 /// // The two syntaxes below are equivalent.
 /// let a = foo.clone();
-/// let b = Arbalest::clone(&foo);
+/// let b = Strong::clone(&foo);
 /// // a, b, and foo are all Arcs that point to the same memory location.
 /// ```
 ///
-/// The [`Arbalest::clone(&from)`] syntax is the most idiomatic because it
+/// The [`Strong::clone(&from)`] syntax is the most idiomatic because it
 /// conveys more explicitly the meaning of the code. In the example above, this
 /// syntax makes it easier to see that this code is creating a new reference
 /// rather than copying the whole content of `foo`.
 ///
 /// ## `Deref` behavior
 ///
-/// `Arbalest<T>` automatically dereferences to `T` (via the `Deref` trait),
-/// so you can call `T`'s methods on a value of type `Arbalest<T>`. To avoid
-/// name clashes with `T`'s methods, the methods of `Arbalest<T>` itself are
+/// `Strong<T>` automatically dereferences to `T` (via the `Deref` trait),
+/// so you can call `T`'s methods on a value of type `Strong<T>`. To avoid
+/// name clashes with `T`'s methods, the methods of `Strong<T>` itself are
 /// associated functions, called using function-like syntax:
 ///
 /// ```
-/// use arbalest::Arbalest;
-/// let my_Arbalest = Arbalest::new(());
+/// use arbalest::Strong;
+/// let my_Arbalest = Strong::new(());
 ///
-/// Arbalest::downgrade(&my_Arbalest);
+/// Strong::downgrade(&my_Arbalest);
 /// ```
 ///
 /// [`Fragile<T>`][fragile] does not auto-dereference to `T`, because the value
@@ -100,21 +100,21 @@ use std::usize;
 /// [fragile]: struct.Fragile.html
 /// [downgrade]: #method.downgrade
 /// [upgrade]: struct.Fragile.html#method.upgrade
-/// [`Arbalest::clone(&from)`]: #method.clone
-pub struct Arbalest<T: ?Sized> {
+/// [`Strong::clone(&from)`]: #method.clone
+pub struct Strong<T: ?Sized> {
     phantom: PhantomData<T>,
     ptr: NonNull<ArbalestInner<T>>,
 }
 
-unsafe impl<T: ?Sized + Sync + Send> Send for Arbalest<T> {}
-unsafe impl<T: ?Sized + Sync + Send> Sync for Arbalest<T> {}
+unsafe impl<T: ?Sized + Sync + Send> Send for Strong<T> {}
+unsafe impl<T: ?Sized + Sync + Send> Sync for Strong<T> {}
 
 /// A mutable memory location with dynamically checked borrow rules.
 pub struct RefMut<'b, T: ?Sized + 'b> {
     value: &'b mut T,
 }
 
-/// An error returned by [`Arbalest::try_borrow_mut`](struct.Arbalest.html#method.try_borrow_mut).
+/// An error returned by [`Strong::try_borrow_mut`](struct.Strong.html#method.try_borrow_mut).
 pub struct BorrowMutError {
     _private: (),
 }
@@ -128,11 +128,11 @@ pub enum UpgradeError {
     MutablyBorrowed,
 }
 
-/// `Fragile` is a version of [`Arbalest`] that holds a non-owning reference
+/// `Fragile` is a version of [`Strong`] that holds a non-owning reference
 /// to the managed value.
 ///
 /// The value is accessed by calling [`upgrade`] on the `Fragile`
-/// pointer, which returns an `Option<`[`Arbalest`]`<T>>`.
+/// pointer, which returns an `Option<`[`Strong`]`<T>>`.
 ///
 /// Since a `Fragile` reference does not count towards ownership, it will not
 /// prevent the inner value from being dropped, and `Fragile` itself makes no
@@ -140,18 +140,18 @@ pub enum UpgradeError {
 /// when [`upgrade`]d.
 ///
 /// A `Fragile` pointer is useful for keeping a temporary reference to the value
-/// within [`Arbalest`] without extending its lifetime. It is also used to
-/// prevent circular references between [`Arbalest`] pointers, since mutual
-/// owning references would never allow either [`Arbalest`] to be dropped.
-/// For example, a tree could have strong [`Arbalest`] pointers from parent
+/// within [`Strong`] without extending its lifetime. It is also used to
+/// prevent circular references between [`Strong`] pointers, since mutual
+/// owning references would never allow either [`Strong`] to be dropped.
+/// For example, a tree could have strong [`Strong`] pointers from parent
 /// nodes to children, and `Fragile` pointers from children back to their
 /// parents.
 ///
 /// The typical way to obtain a `Fragile` pointer is to call
-/// [`Arbalest::downgrade`].
+/// [`Strong::downgrade`].
 ///
-/// [`Arbalest`]: struct.Arbalest.html
-/// [`Arbalest::downgrade`]: struct.Arbalest.html#method.downgrade
+/// [`Strong`]: struct.Strong.html
+/// [`Strong::downgrade`]: struct.Strong.html#method.downgrade
 /// [`upgrade`]: #method.upgrade
 pub struct Fragile<T: ?Sized> {
     // This is a `NonNull` to allow optimizing the size of this type in enums,
@@ -174,15 +174,15 @@ struct ArbalestInner<T: ?Sized> {
 unsafe impl<T: ?Sized + Sync + Send> Send for ArbalestInner<T> {}
 unsafe impl<T: ?Sized + Sync + Send> Sync for ArbalestInner<T> {}
 
-impl<T> Arbalest<T> {
-    /// Constructs a new `Arbalest<T>`.
+impl<T> Strong<T> {
+    /// Constructs a new `Strong<T>`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     /// ```
     #[inline]
     pub fn new(data: T) -> Self {
@@ -199,7 +199,7 @@ impl<T> Arbalest<T> {
         }
     }
 
-    /// Returns the contained value, if the `Arbalest` has exactly one strong
+    /// Returns the contained value, if the `Strong` has exactly one strong
     /// reference.
     ///
     /// Otherwise, an error is returned with the same value that was passed in.
@@ -209,14 +209,14 @@ impl<T> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let x = Arbalest::new(3);
-    /// assert_eq!(Arbalest::try_unwrap(x), Ok(3));
+    /// let x = Strong::new(3);
+    /// assert_eq!(Strong::try_unwrap(x), Ok(3));
     ///
-    /// let x = Arbalest::new(4);
-    /// let y = Arbalest::clone(&x);
-    /// assert_eq!(*Arbalest::try_unwrap(x).unwrap_err(), 4);
+    /// let x = Strong::new(4);
+    /// let y = Strong::clone(&x);
+    /// assert_eq!(*Strong::try_unwrap(x).unwrap_err(), 4);
     /// ```
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
         // See `drop` for why all these atomics are like this.
@@ -238,11 +238,11 @@ impl<T> Arbalest<T> {
     }
 }
 
-impl<T: ?Sized> Arbalest<T> {
+impl<T: ?Sized> Strong<T> {
     /// Mutably borrows the wrapped value.
     ///
     /// The borrow lasts until the returned `RefMut` exits scope. Fragile
-    /// references to that `Arbalest` cannot be upgraded while this borrow
+    /// references to that `Strong` cannot be upgraded while this borrow
     /// is active.
     ///
     /// # Panics
@@ -253,11 +253,11 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let mut c = Arbalest::new(5);
+    /// let mut c = Strong::new(5);
     ///
-    /// *Arbalest::borrow_mut(&mut c) = 7;
+    /// *Strong::borrow_mut(&mut c) = 7;
     ///
     /// assert_eq!(*c, 7);
     /// ```
@@ -265,13 +265,13 @@ impl<T: ?Sized> Arbalest<T> {
     /// An example of panic:
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     /// use std::thread;
     ///
-    /// let mut five = Arbalest::new(5);
-    /// let same_five = Arbalest::clone(&five);
+    /// let mut five = Strong::new(5);
+    /// let same_five = Strong::clone(&five);
     /// let result = thread::spawn(move || {
-    ///    let b = Arbalest::borrow_mut(&mut five); // this causes a panic
+    ///    let b = Strong::borrow_mut(&mut five); // this causes a panic
     /// }).join();
     ///
     /// assert!(result.is_err());
@@ -288,7 +288,7 @@ impl<T: ?Sized> Arbalest<T> {
     /// is currently borrowed.
     ///
     /// The borrow lasts until the returned `RefMut` exits scope. Fragile
-    /// references to that `Arbalest` cannot be upgraded while this borrow
+    /// references to that `Strong` cannot be upgraded while this borrow
     /// is active.
     ///
     /// This is the non-panicking variant of [`borrow_mut`](#method.borrow_mut).
@@ -296,16 +296,16 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let mut five = Arbalest::new(5);
+    /// let mut five = Strong::new(5);
     ///
     /// {
-    ///     let same_five = Arbalest::clone(&five);
-    ///     assert!(Arbalest::try_borrow_mut(&mut five).is_err());
+    ///     let same_five = Strong::clone(&five);
+    ///     assert!(Strong::try_borrow_mut(&mut five).is_err());
     /// }
     ///
-    /// assert!(Arbalest::try_borrow_mut(&mut five).is_ok());
+    /// assert!(Strong::try_borrow_mut(&mut five).is_ok());
     /// ```
     #[inline]
     pub fn try_borrow_mut(this: &mut Self) -> Result<RefMut<T>, BorrowMutError> {
@@ -314,7 +314,7 @@ impl<T: ?Sized> Arbalest<T> {
         // value, and given we have a &mut of it, there is no way another thread
         // is holding a reference to it.
         //
-        // This Acquire load synchronises with the Release write in Arbalest::drop.
+        // This Acquire load synchronises with the Release write in Strong::drop.
         if inner.strong.compare_and_swap(1, MUTABLE_REFCOUNT, Acquire) != 1 {
             return Err(BorrowMutError { _private: () });
         }
@@ -323,20 +323,20 @@ impl<T: ?Sized> Arbalest<T> {
         })
     }
 
-    /// Consumes the `Arbalest`, returning the wrapped pointer.
+    /// Consumes the `Strong`, returning the wrapped pointer.
     ///
     /// To avoid a memory leak the pointer must be converted back to an
-    /// `Arbalest` using [`Arbalest::from_raw`][from_raw].
+    /// `Strong` using [`Strong::from_raw`][from_raw].
     ///
     /// [from_raw]: #method.from_raw
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let x = Arbalest::new(10);
-    /// let x_ptr = Arbalest::into_raw(x);
+    /// let x = Strong::new(10);
+    /// let x_ptr = Strong::into_raw(x);
     /// assert_eq!(unsafe { *x_ptr }, 10);
     /// ```
     pub fn into_raw(this: Self) -> *const T {
@@ -345,10 +345,10 @@ impl<T: ?Sized> Arbalest<T> {
         ptr
     }
 
-    /// Constructs an `Arbalest` from a raw pointer.
+    /// Constructs an `Strong` from a raw pointer.
     ///
     /// The raw pointer must have been previously returned by a call to a
-    /// [`Arbalest::into_raw`][into_raw].
+    /// [`Strong::into_raw`][into_raw].
     ///
     /// This function is unsafe because improper use may lead to memory problems.
     /// For example, a double-free may occur if the function is called twice on
@@ -359,17 +359,17 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let x = Arbalest::new(10);
-    /// let x_ptr = Arbalest::into_raw(x);
+    /// let x = Strong::new(10);
+    /// let x_ptr = Strong::into_raw(x);
     ///
     /// unsafe {
     ///     // Convert back to an `Arc` to prevent leak.
-    ///     let x = Arbalest::from_raw(x_ptr);
+    ///     let x = Strong::from_raw(x_ptr);
     ///     assert_eq!(*x, 10);
     ///
-    ///     // Further calls to `Arbalest::from_raw(x_ptr)` would be memory-unsafe.
+    ///     // Further calls to `Strong::from_raw(x_ptr)` would be memory-unsafe.
     /// }
     ///
     /// // The memory was freed when `x` went out of scope above, so `x_ptr` is now dangling!
@@ -388,11 +388,11 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Arbalest::downgrade(&five);
+    /// let fragile_five = Strong::downgrade(&five);
     /// ```
     #[inline]
     pub fn downgrade(this: &Self) -> Fragile<T> {
@@ -413,21 +413,21 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
-    /// let fragile_five = Arbalest::downgrade(&five);
+    /// let five = Strong::new(5);
+    /// let fragile_five = Strong::downgrade(&five);
     ///
     /// // This assertion is deterministic because we haven't shared
-    /// // the `Arbalest` or `Fragile` between threads.
-    /// assert_eq!(1, Arbalest::fragile_count(&five));
+    /// // the `Strong` or `Fragile` between threads.
+    /// assert_eq!(1, Strong::fragile_count(&five));
     /// ```
     #[inline]
     pub fn fragile_count(this: &Self) -> usize {
         this.inner().fragile.load(SeqCst) - 1
     }
 
-    /// Gets the number of strong (`Arbalest`) pointers to this value.
+    /// Gets the number of strong (`Strong`) pointers to this value.
     ///
     /// # Safety
     ///
@@ -438,61 +438,61 @@ impl<T: ?Sized> Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
-    /// let also_five = Arbalest::clone(&five);
+    /// let five = Strong::new(5);
+    /// let also_five = Strong::clone(&five);
     ///
     /// // This assertion is deterministic because we haven't shared
-    /// // the `Arbalest` between threads.
-    /// assert_eq!(2, Arbalest::strong_count(&five));
+    /// // the `Strong` between threads.
+    /// assert_eq!(2, Strong::strong_count(&five));
     /// ```
     #[inline]
     pub fn strong_count(this: &Self) -> usize {
         this.inner().strong.load(SeqCst)
     }
 
-    /// Returns true if the two `Arbalest`s point to the same value (not
+    /// Returns true if the two `Strong`s point to the same value (not
     /// just values that compare as equal).
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
-    /// let same_five = Arbalest::clone(&five);
-    /// let other_five = Arbalest::new(5);
+    /// let five = Strong::new(5);
+    /// let same_five = Strong::clone(&five);
+    /// let other_five = Strong::new(5);
     ///
-    /// assert!(Arbalest::ptr_eq(&five, &same_five));
-    /// assert!(!Arbalest::ptr_eq(&five, &other_five));
+    /// assert!(Strong::ptr_eq(&five, &same_five));
+    /// assert!(!Strong::ptr_eq(&five, &other_five));
     /// ```
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.ptr.as_ptr() == other.ptr.as_ptr()
     }
 }
 
-impl<T: ?Sized> AsRef<T> for Arbalest<T> {
+impl<T: ?Sized> AsRef<T> for Strong<T> {
     #[inline]
     fn as_ref(&self) -> &T {
         self
     }
 }
 
-impl<T: ?Sized> Borrow<T> for Arbalest<T> {
+impl<T: ?Sized> Borrow<T> for Strong<T> {
     #[inline]
     fn borrow(&self) -> &T {
         self
     }
 }
 
-impl<T: ?Sized> Deref for Arbalest<T> {
+impl<T: ?Sized> Deref for Strong<T> {
     type Target = T;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
         // This does not require any synchronisation, given that the value
-        // can only be mutated when there is no other Arbalest pointing to it,
+        // can only be mutated when there is no other Strong pointing to it,
         // so if we deref this one, it's either the same one or a clone
         // on the same thread (in which case things are obviously in order),
         // or an access through a different thread, to which the data had to be
@@ -502,15 +502,15 @@ impl<T: ?Sized> Deref for Arbalest<T> {
     }
 }
 
-impl<T: Default> Default for Arbalest<T> {
-    /// Creates a new `Arbalest<T>`, with the `Default` value for `T`.
+impl<T: Default> Default for Strong<T> {
+    /// Creates a new `Strong<T>`, with the `Default` value for `T`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let x: Arbalest<i32> = Default::default();
+    /// let x: Strong<i32> = Default::default();
     /// assert_eq!(*x, 0);
     /// ```
     #[inline]
@@ -519,8 +519,8 @@ impl<T: Default> Default for Arbalest<T> {
     }
 }
 
-impl<T: ?Sized> Clone for Arbalest<T> {
-    /// Makes a clone of the `Arbalest` pointer.
+impl<T: ?Sized> Clone for Strong<T> {
+    /// Makes a clone of the `Strong` pointer.
     ///
     /// This creates another pointer to the same inner value, increasing the
     /// strong reference count.
@@ -528,11 +528,11 @@ impl<T: ?Sized> Clone for Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// let _ = Arbalest::clone(&five);
+    /// let _ = Strong::clone(&five);
     /// ```
     #[inline]
     fn clone(&self) -> Self {
@@ -540,7 +540,7 @@ impl<T: ?Sized> Clone for Arbalest<T> {
         // this will currently abort the program. Is there any way to recover
         // decently from a forgotten RefMut, taking advantage of the fact
         // that at the moment the RefMut was forgotten, there couldn't be more
-        // than a single Arbalest<T>?
+        // than a single Strong<T>?
 
         // Using a relaxed ordering is alright here, as knowledge of the
         // original reference prevents other threads from erroneously deleting
@@ -575,51 +575,51 @@ impl<T: ?Sized> Clone for Arbalest<T> {
     }
 }
 
-impl<T> From<T> for Arbalest<T> {
+impl<T> From<T> for Strong<T> {
     #[inline]
     fn from(t: T) -> Self {
         Self::new(t)
     }
 }
 
-impl<T: ?Sized + Hash> Hash for Arbalest<T> {
+impl<T: ?Sized + Hash> Hash for Strong<T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         (**self).hash(state)
     }
 }
 
-impl<T: ?Sized + PartialEq> PartialEq for Arbalest<T> {
-    /// Equality for two `Arbalest`s.
+impl<T: ?Sized + PartialEq> PartialEq for Strong<T> {
+    /// Equality for two `Strong`s.
     ///
-    /// Two `Arbalest`s are equal if their inner values are equal.
+    /// Two `Strong`s are equal if their inner values are equal.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five == Arbalest::new(5));
+    /// assert!(five == Strong::new(5));
     /// ```
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         **self == **other
     }
 
-    /// Inequality for two `Arbalest`s.
+    /// Inequality for two `Strong`s.
     ///
-    /// Two `Arbalest`s are unequal if their inner values are unequal.
+    /// Two `Strong`s are unequal if their inner values are unequal.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five != Arbalest::new(6));
+    /// assert!(five != Strong::new(6));
     /// ```
     #[inline]
     fn ne(&self, other: &Self) -> bool {
@@ -627,138 +627,138 @@ impl<T: ?Sized + PartialEq> PartialEq for Arbalest<T> {
     }
 }
 
-impl<T: ?Sized + Eq> Eq for Arbalest<T> {}
+impl<T: ?Sized + Eq> Eq for Strong<T> {}
 
-impl<T: ?Sized + PartialOrd> PartialOrd for Arbalest<T> {
-    /// Partial comparison for two `Arbalest`s.
+impl<T: ?Sized + PartialOrd> PartialOrd for Strong<T> {
+    /// Partial comparison for two `Strong`s.
     ///
     /// The two are compared by calling `partial_cmp()` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     /// use std::cmp::Ordering;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert_eq!(Some(Ordering::Less), five.partial_cmp(&Arbalest::new(6)));
+    /// assert_eq!(Some(Ordering::Less), five.partial_cmp(&Strong::new(6)));
     /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         (**self).partial_cmp(&**other)
     }
 
-    /// Less-than comparison for two `Arbalest`s.
+    /// Less-than comparison for two `Strong`s.
     ///
     /// The two are compared by calling `<` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five < Arbalest::new(6));
+    /// assert!(five < Strong::new(6));
     /// ```
     fn lt(&self, other: &Self) -> bool {
         **self < **other
     }
 
-    /// “Less than or equal to” comparison for two `Arbalest`s.
+    /// “Less than or equal to” comparison for two `Strong`s.
     ///
     /// The two are compared by calling `<=` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five <= Arbalest::new(5));
+    /// assert!(five <= Strong::new(5));
     /// ```
     fn le(&self, other: &Self) -> bool {
         **self <= **other
     }
 
-    /// Greater-than comparison for two `Arbalest`s.
+    /// Greater-than comparison for two `Strong`s.
     ///
     /// The two are compared by calling `>` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five > Arbalest::new(4));
+    /// assert!(five > Strong::new(4));
     /// ```
     fn gt(&self, other: &Self) -> bool {
         **self > **other
     }
 
-    /// “Greater than or equal to” comparison for two `Arbalest`s.
+    /// “Greater than or equal to” comparison for two `Strong`s.
     ///
     /// The two are compared by calling `>=` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert!(five >= Arbalest::new(5));
+    /// assert!(five >= Strong::new(5));
     /// ```
     fn ge(&self, other: &Self) -> bool {
         **self >= **other
     }
 }
 
-impl<T: ?Sized + Ord> Ord for Arbalest<T> {
-    /// Comparison for two `Arbalest`s.
+impl<T: ?Sized + Ord> Ord for Strong<T> {
+    /// Comparison for two `Strong`s.
     ///
     /// The two are compared by calling `cmp()` on their inner values.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     /// use std::cmp::Ordering;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// assert_eq!(Ordering::Less, five.cmp(&Arbalest::new(6)));
+    /// assert_eq!(Ordering::Less, five.cmp(&Strong::new(6)));
     /// ```
     fn cmp(&self, other: &Self) -> Ordering {
         (**self).cmp(&**other)
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for Arbalest<T> {
+impl<T: ?Sized + fmt::Debug> fmt::Debug for Strong<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<T: ?Sized + fmt::Display> fmt::Display for Arbalest<T> {
+impl<T: ?Sized + fmt::Display> fmt::Display for Strong<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<T: ?Sized> fmt::Pointer for Arbalest<T> {
+impl<T: ?Sized> fmt::Pointer for Strong<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (&**self as *const T).fmt(f)
     }
 }
 
-impl<T: RefUnwindSafe + ?Sized> UnwindSafe for Arbalest<T> {}
+impl<T: RefUnwindSafe + ?Sized> UnwindSafe for Strong<T> {}
 
-impl<T: ?Sized> Drop for Arbalest<T> {
-    /// Drops the `Arbalest`.
+impl<T: ?Sized> Drop for Strong<T> {
+    /// Drops the `Strong`.
     ///
     /// This will decrement the strong reference count. If the strong reference
     /// count reaches zero then the only other references (if any) are
@@ -767,7 +767,7 @@ impl<T: ?Sized> Drop for Arbalest<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
     /// struct Foo;
     ///
@@ -777,8 +777,8 @@ impl<T: ?Sized> Drop for Arbalest<T> {
     ///     }
     /// }
     ///
-    /// let foo  = Arbalest::new(Foo);
-    /// let foo2 = Arbalest::clone(&foo);
+    /// let foo  = Strong::new(Foo);
+    /// let foo2 = Strong::clone(&foo);
     ///
     /// drop(foo);    // Doesn't print anything
     /// drop(foo2);   // Prints "dropped!"
@@ -830,7 +830,7 @@ impl<T: ?Sized> Drop for Arbalest<T> {
         atomic::fence(Acquire);
 
         #[inline(never)]
-        unsafe fn drop_slow<T: ?Sized>(this: &mut Arbalest<T>) {
+        unsafe fn drop_slow<T: ?Sized>(this: &mut Strong<T>) {
             // Destroy the data at this time, even though we may not free the box
             // allocation itself (there may still be fragile pointers lying around).
             ptr::drop_in_place(&mut this.ptr.as_mut().data);
@@ -858,11 +858,11 @@ impl<'b, T: ?Sized> RefMut<'b, T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Arbalest::downgrade(&five);
+    /// let fragile_five = Strong::downgrade(&five);
     /// ```
     #[inline]
     pub fn downgrade(this: &Self) -> Fragile<T> {
@@ -950,28 +950,28 @@ impl<T> Fragile<T> {
 }
 
 impl<T: ?Sized> Fragile<T> {
-    /// Attempts to upgrade the `Fragile` pointer to an [`Arbalest`], extending
+    /// Attempts to upgrade the `Fragile` pointer to an [`Strong`], extending
     /// the lifetime of the value if successful.
     ///
     /// Returns `None` if the value has since been dropped.
     ///
-    /// [`Arbalest`]: struct.Arbalest.html
+    /// [`Strong`]: struct.Strong.html
     ///
     /// # Panics
     ///
     /// Panics if the value is currently mutably borrowed by its single
-    /// `Arbalest` reference.
+    /// `Strong` reference.
     ///
     /// # Examples
     ///
     /// ```
-    /// use arbalest::Arbalest;
+    /// use arbalest::Strong;
     ///
-    /// let five = Arbalest::new(5);
+    /// let five = Strong::new(5);
     ///
-    /// let fragile_five = Arbalest::downgrade(&five);
+    /// let fragile_five = Strong::downgrade(&five);
     ///
-    /// let strong_five: Option<Arbalest<_>> = fragile_five.upgrade();
+    /// let strong_five: Option<Strong<_>> = fragile_five.upgrade();
     /// assert!(strong_five.is_some());
     ///
     /// // Destroy all strong pointers.
@@ -984,19 +984,19 @@ impl<T: ?Sized> Fragile<T> {
     /// An example of panic:
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile};
+    /// use arbalest::{Strong, Fragile};
     /// use std::thread;
     ///
-    /// let mut five = Arbalest::new(5);
-    /// let fragile_five = Arbalest::downgrade(&five);
-    /// let b = Arbalest::borrow_mut(&mut five);
+    /// let mut five = Strong::new(5);
+    /// let fragile_five = Strong::downgrade(&five);
+    /// let b = Strong::borrow_mut(&mut five);
     /// let result = thread::spawn(move || {
     ///    let maybe_same_five = fragile_five.upgrade(); // this causes a panic
     /// }).join();
     ///
     /// assert!(result.is_err());
     /// ```
-    pub fn upgrade(&self) -> Option<Arbalest<T>> {
+    pub fn upgrade(&self) -> Option<Strong<T>> {
         match self.try_upgrade() {
             Ok(value) => Some(value),
             Err(UpgradeError::Dropped) => None,
@@ -1004,7 +1004,7 @@ impl<T: ?Sized> Fragile<T> {
         }
     }
 
-    /// Attempts to upgrade the `Fragile` pointer to an [`Arbalest`], extending
+    /// Attempts to upgrade the `Fragile` pointer to an [`Strong`], extending
     /// the lifetime of the value if successful.
     ///
     /// This is the non-panicking variant of [`upgrade`](#method.upgrade).
@@ -1015,23 +1015,23 @@ impl<T: ?Sized> Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile, UpgradeError};
+    /// use arbalest::{Strong, Fragile, UpgradeError};
     /// use std::mem;
     ///
-    /// let mut five = Arbalest::new(5);
-    /// let fragile_five = Arbalest::downgrade(&five);
+    /// let mut five = Strong::new(5);
+    /// let fragile_five = Strong::downgrade(&five);
     /// assert!(fragile_five.try_upgrade().is_ok());
     ///
     /// {
-    ///     let b = Arbalest::borrow_mut(&mut five);
+    ///     let b = Strong::borrow_mut(&mut five);
     ///     assert_eq!(fragile_five.try_upgrade(), Err(UpgradeError::MutablyBorrowed));
     /// }
     ///
     /// drop(five);
     /// assert_eq!(fragile_five.try_upgrade(), Err(UpgradeError::Dropped));
     /// ```
-    /// [`Arbalest`]: struct.Arbalest.html
-    pub fn try_upgrade(&self) -> Result<Arbalest<T>, UpgradeError> {
+    /// [`Strong`]: struct.Strong.html
+    pub fn try_upgrade(&self) -> Result<Strong<T>, UpgradeError> {
         // We use a CAS loop to increment the strong count instead of a
         // fetch_add because once the count hits 0 it must never be above 0.
         let inner = self.inner().ok_or(UpgradeError::Dropped)?;
@@ -1050,8 +1050,8 @@ impl<T: ?Sized> Fragile<T> {
             }
 
             // See comments in `Arc::clone` for why we do this (for `mem::forget`).
-            // FIXME(nox): This may also happen if a Arbalest is mutably borrowed,
-            // the RefMut is forgotten, then the Arbalest is cloned and a
+            // FIXME(nox): This may also happen if a Strong is mutably borrowed,
+            // the RefMut is forgotten, then the Strong is cloned and a
             // a fragile reference is upgraded.
             if n > MAX_REFCOUNT {
                 process::abort();
@@ -1063,7 +1063,7 @@ impl<T: ?Sized> Fragile<T> {
                 .compare_exchange_weak(n, n + 1, Relaxed, Relaxed)
             {
                 Ok(_) => {
-                    return Ok(Arbalest {
+                    return Ok(Strong {
                         ptr: self.ptr,
                         phantom: PhantomData,
                     });
@@ -1084,16 +1084,16 @@ impl<T: ?Sized> Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile};
+    /// use arbalest::{Strong, Fragile};
     ///
-    /// let first_rc = Arbalest::new(5);
-    /// let first = Arbalest::downgrade(&first_rc);
-    /// let second = Arbalest::downgrade(&first_rc);
+    /// let first_rc = Strong::new(5);
+    /// let first = Strong::downgrade(&first_rc);
+    /// let second = Strong::downgrade(&first_rc);
     ///
     /// assert!(Fragile::ptr_eq(&first, &second));
     ///
-    /// let third_rc = Arbalest::new(5);
-    /// let third = Arbalest::downgrade(&third_rc);
+    /// let third_rc = Strong::new(5);
+    /// let third = Strong::downgrade(&third_rc);
     ///
     /// assert!(!Fragile::ptr_eq(&first, &third));
     /// ```
@@ -1101,14 +1101,14 @@ impl<T: ?Sized> Fragile<T> {
     /// Comparing `Fragile::new`.
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile};
+    /// use arbalest::{Strong, Fragile};
     ///
     /// let first = Fragile::new();
     /// let second = Fragile::new();
     /// assert!(Fragile::ptr_eq(&first, &second));
     ///
-    /// let third_rc = Arbalest::new(());
-    /// let third = Arbalest::downgrade(&third_rc);
+    /// let third_rc = Strong::new(());
+    /// let third = Strong::downgrade(&third_rc);
     /// assert!(!Fragile::ptr_eq(&first, &third));
     /// ```
     #[inline]
@@ -1123,9 +1123,9 @@ impl<T: ?Sized> Clone for Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile};
+    /// use arbalest::{Strong, Fragile};
     ///
-    /// let fragile_five = Arbalest::downgrade(&Arbalest::new(5));
+    /// let fragile_five = Strong::downgrade(&Strong::new(5));
     ///
     /// let _ = Fragile::clone(&fragile_five);
     /// ```
@@ -1168,7 +1168,7 @@ impl<T: ?Sized> Drop for Fragile<T> {
     /// # Examples
     ///
     /// ```
-    /// use arbalest::{Arbalest, Fragile};
+    /// use arbalest::{Strong, Fragile};
     ///
     /// struct Foo;
     ///
@@ -1178,8 +1178,8 @@ impl<T: ?Sized> Drop for Fragile<T> {
     ///     }
     /// }
     ///
-    /// let foo = Arbalest::new(Foo);
-    /// let fragile_foo = Arbalest::downgrade(&foo);
+    /// let foo = Strong::new(Foo);
+    /// let fragile_foo = Strong::downgrade(&foo);
     /// let other_fragile_foo = Fragile::clone(&fragile_foo);
     ///
     /// drop(fragile_foo);   // Doesn't print anything
@@ -1189,7 +1189,7 @@ impl<T: ?Sized> Drop for Fragile<T> {
     /// ```
     fn drop(&mut self) {
         // If we find out that we were the last fragile pointer, then its time
-        // to deallocate the data entirely. See the discussion in Arbalest::drop()
+        // to deallocate the data entirely. See the discussion in Strong::drop()
         // about the memory orderings.
         let inner = if let Some(inner) = self.inner() {
             inner
@@ -1227,7 +1227,7 @@ impl Error for UpgradeError {
     }
 }
 
-impl<T: ?Sized> Arbalest<T> {
+impl<T: ?Sized> Strong<T> {
     fn inner(&self) -> &ArbalestInner<T> {
         // This unsafety is ok because while this arc is alive we're guaranteed
         // that the inner pointer is valid. Furthermore, we know that the
