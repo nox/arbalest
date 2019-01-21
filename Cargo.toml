@@ -11,8 +11,5 @@ categories = ["concurrency", "data-structures"]
 keywords = ["arc", "atomic", "thread"]
 exclude = ["/bors.toml", "/.travis.yml"]
 
-[badges]
-travis-ci = { repository = "nox/arbalest" }
-
 [lib]
 test = false
