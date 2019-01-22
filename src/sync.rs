@@ -11,9 +11,6 @@
 //!
 //! See the [`Strong<T>`][strong] documentation for more details.
 //!
-//! “Arbalest” is just a cute name, an `Arc<T>` with a twist, and “arc” is
-//! French for “bow”.
-//!
 //! [strong]: struct.Strong.html
 
 use std::alloc::{self, Layout};
