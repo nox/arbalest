@@ -958,7 +958,9 @@ impl<T: ?Sized> Frail<T> {
     /// # Panics
     ///
     /// Panics if the value is currently mutably borrowed by its single
-    /// `Strong` reference.
+    /// `Strong` reference. For a non-panicking variant, use
+    /// [`try_upgrade`](#method.try_upgrade).
+    ///
     ///
     /// # Examples
     ///
