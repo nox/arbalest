@@ -11,9 +11,6 @@
 //!
 //! See the [`Strong<T>`][strong] documentation for more details.
 //!
-//! “Arbalest” is just a cute name, an `Arc<T>` with a twist, and “arc” is
-//! French for “bow”.
-//!
 //! [strong]: struct.Strong.html
 
 use std::alloc::{self, Layout};
@@ -204,7 +201,8 @@ impl<T> Strong<T> {
     ///
     /// Otherwise, an error is returned with the same value that was passed in.
     ///
-    /// This will succeed even if there are outstanding frail references.
+    /// All existing `Frail` references to that value are invalidated if the
+    /// operation succeeds.
     ///
     /// # Examples
     ///
@@ -960,7 +958,9 @@ impl<T: ?Sized> Frail<T> {
     /// # Panics
     ///
     /// Panics if the value is currently mutably borrowed by its single
-    /// `Strong` reference.
+    /// `Strong` reference. For a non-panicking variant, use
+    /// [`try_upgrade`](#method.try_upgrade).
+    ///
     ///
     /// # Examples
     ///
